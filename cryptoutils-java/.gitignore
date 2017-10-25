@@ -1,0 +1,13 @@
+/bin/
+/target/
+/.settings/
+/.classpath
+/.project
+.DS_Store
+/lockscreen
+*.log
+*.log.gz
+Thumbs.db
+/packageJars/
+/moduleJars/
+/classes/
