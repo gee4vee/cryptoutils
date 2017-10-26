@@ -11,3 +11,4 @@ Thumbs.db
 /packageJars/
 /moduleJars/
 /classes/
+/test_gen_self_signed.pkcs12
