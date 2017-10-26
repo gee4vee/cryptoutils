@@ -12,3 +12,6 @@ Thumbs.db
 /moduleJars/
 /classes/
 /test_gen_self_signed.pkcs12
+/test_newcert.pem
+/test_trusted_cert.jks
+/test_csr.pem

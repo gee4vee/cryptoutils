@@ -11,7 +11,6 @@ import java.io.Reader;
 import java.io.StringWriter;
 import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
-import java.nio.charset.Charset;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
@@ -35,7 +34,7 @@ import java.util.Base64;
 import java.util.Calendar;
 import java.util.Date;
 
-import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.FileUtils;
 import org.bouncycastle.asn1.ASN1EncodableVector;
 import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -140,12 +139,13 @@ public class CertificateUtils {
      * Generates a new self-signed certificate with a newly generated RSA 4096-bit key pair using the specified subject.
      * 
      * @param subjectDN
+     * @param isCA If <code>true</code>, the certificate is for a self-signed certificate authority.
      * 
      * @throws Exception
      */
-    public static X509Certificate selfSignedCertificateX509v3(String subjectDN) throws Exception {
+    public static X509Certificate selfSignedCertificateX509v3(String subjectDN, boolean isCA) throws Exception {
         KeyPair keyPair = generateKeyPair();
-        return selfSignedCertificateX509v3(keyPair, subjectDN);
+        return selfSignedCertificateX509v3(keyPair, subjectDN, isCA);
     }
 
     /**
@@ -154,14 +154,15 @@ public class CertificateUtils {
      * 
      * @param keyPair
      * @param subjectDN
-     * @return
+     * @param isCA If <code>true</code>, the certificate is for a self-signed certificate authority.
+     * 
      * @throws OperatorCreationException
      * @throws CertificateException
      * @throws IOException
      */
-    public static X509Certificate selfSignedCertificateX509v3(KeyPair keyPair, String subjectDN)
+    public static X509Certificate selfSignedCertificateX509v3(KeyPair keyPair, String subjectDN, boolean isCA)
             throws OperatorCreationException, CertificateException, IOException {
-        return selfSignedCertificateX509v3(keyPair, subjectDN, DEFAULT_CERT_VALIDITY_YEARS);
+        return selfSignedCertificateX509v3(keyPair, subjectDN, DEFAULT_CERT_VALIDITY_YEARS, isCA);
     }
 
     /**
@@ -169,18 +170,18 @@ public class CertificateUtils {
      * 
      * @param keyPair
      * @param subjectDN
-     * @param validityYears
-     *            The number of years for which the certificate is valid.
-     * @return
+     * @param validityYears The number of years for which the certificate is valid.
+     * @param isCA If <code>true</code>, the certificate is for a self-signed certificate authority.
+     * 
      * @throws OperatorCreationException
      * @throws CertificateException
      * @throws IOException
      */
-    public static X509Certificate selfSignedCertificateX509v3(KeyPair keyPair, String subjectDN, int validityYears)
+    public static X509Certificate selfSignedCertificateX509v3(KeyPair keyPair, String subjectDN, int validityYears, boolean isCA)
             throws OperatorCreationException, CertificateException, IOException {
         KeyUsage usage = new KeyUsage(KeyUsage.keyCertSign | KeyUsage.digitalSignature | KeyUsage.keyEncipherment | KeyUsage.dataEncipherment 
                 | KeyUsage.cRLSign);
-        return selfSignedCertificateX509v3(keyPair, subjectDN, validityYears, usage);
+        return selfSignedCertificateX509v3(keyPair, subjectDN, validityYears, usage, isCA);
     }
 
     /**
@@ -191,12 +192,14 @@ public class CertificateUtils {
      * @param subjectDN
      * @param validityYears
      * @param usage The kind of usage that is to be allowed for the certificate key.
+     * @param isCA If <code>true</code>, the certificate is for a self-signed certificate authority.
      * 
      * @throws CertIOException
      * @throws OperatorCreationException
      * @throws CertificateException
      */
-    public static X509Certificate selfSignedCertificateX509v3(KeyPair keyPair, String subjectDN, int validityYears, KeyUsage usage)
+    public static X509Certificate selfSignedCertificateX509v3(KeyPair keyPair, String subjectDN, int validityYears, KeyUsage usage, 
+            boolean isCA)
             throws CertIOException, OperatorCreationException, CertificateException {
         long now = System.currentTimeMillis();
         Date startDate = new Date(now);
@@ -214,7 +217,8 @@ public class CertificateUtils {
         SubjectPublicKeyInfo subjectPublicKeyInfo = SubjectPublicKeyInfo.getInstance(keyPair.getPublic().getEncoded());
         X509v3CertificateBuilder certificateBuilder = new X509v3CertificateBuilder(dnName, certSerialNumber, startDate, endDate, dnName,
                 subjectPublicKeyInfo);
-        certificateBuilder.addExtension(Extension.keyUsage, false, usage);
+        certificateBuilder.addExtension(Extension.keyUsage, false, usage)
+            .addExtension(Extension.basicConstraints, isCA, new BasicConstraints(isCA));
 
         ASN1EncodableVector purposes = new ASN1EncodableVector();
         purposes.add(KeyPurposeId.id_kp_serverAuth);
@@ -239,7 +243,9 @@ public class CertificateUtils {
      * @param generatedKeyPair The certificate's key pair.
      * @param subjectDN The subject of the certificate.
      * @param filename The path to the file that will contain the data.
+     * @param alias The alias of the entry in the key store.
      * @param password The password to set on the generated file.
+     * @param isCA If <code>true</code>, the certificate is for a self-signed certificate authority.
      * 
      * @throws KeyStoreException
      * @throws IOException
@@ -248,9 +254,10 @@ public class CertificateUtils {
      * @throws FileNotFoundException
      * @throws OperatorCreationException
      */
-    public static X509Certificate selfSignedCertificateX509v3ToPKCS12(KeyPair generatedKeyPair, String subjectDN, String filename, char[] password) 
+    public static X509Certificate selfSignedCertificateX509v3ToPKCS12(KeyPair generatedKeyPair, String subjectDN, String filename, 
+            String alias, char[] password, boolean isCA) 
             throws KeyStoreException, IOException, NoSuchAlgorithmException, CertificateException, FileNotFoundException, OperatorCreationException {
-                return selfSignedCertificateX509v3ToPKCS12(generatedKeyPair, subjectDN, filename, password, 5);
+                return selfSignedCertificateX509v3ToPKCS12(generatedKeyPair, subjectDN, filename, alias, password, DEFAULT_CERT_VALIDITY_YEARS, isCA);
             }
 
     /**
@@ -260,8 +267,10 @@ public class CertificateUtils {
      * @param generatedKeyPair The certificate's key pair.
      * @param subjectDN The subject of the certificate.
      * @param filename The path to the file that will contain the data.
+     * @param alias TODO
      * @param password The password to set on the generated file.
      * @param validityYears The lifetime of the certificate before it expires.
+     * @param isCA If <code>true</code>, the certificate is for a self-signed certificate authority.
      * 
      * @throws KeyStoreException
      * @throws IOException
@@ -270,11 +279,12 @@ public class CertificateUtils {
      * @throws FileNotFoundException
      * @throws OperatorCreationException
      */
-    public static X509Certificate selfSignedCertificateX509v3ToPKCS12(KeyPair generatedKeyPair, String subjectDN, String filename, char[] password, int validityYears) 
+    public static X509Certificate selfSignedCertificateX509v3ToPKCS12(KeyPair generatedKeyPair, String subjectDN, String filename, 
+            String alias, char[] password, int validityYears, boolean isCA) 
             throws KeyStoreException, IOException, NoSuchAlgorithmException, CertificateException, FileNotFoundException, OperatorCreationException {
     
-        X509Certificate selfSignedCertificate = selfSignedCertificateX509v3(generatedKeyPair, subjectDN, validityYears);
-        saveToPKCS12(selfSignedCertificate, generatedKeyPair, filename, password);
+        X509Certificate selfSignedCertificate = selfSignedCertificateX509v3(generatedKeyPair, subjectDN, validityYears, isCA);
+        saveToPKCS12(selfSignedCertificate, generatedKeyPair, filename, alias, password);
         
         return selfSignedCertificate;
     }
@@ -388,9 +398,9 @@ public class CertificateUtils {
         CMSSignedData signeddata = generator.generate(content, true);
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        out.write("-----BEGIN PKCS #7 SIGNED DATA-----\n".getBytes("ISO-8859-1"));
+        out.write("-----BEGIN PKCS7-----\n".getBytes("ISO-8859-1"));
         out.write(Base64.getEncoder().encode(signeddata.getEncoded()));
-        out.write("\n-----END PKCS #7 SIGNED DATA-----\n".getBytes("ISO-8859-1"));
+        out.write("\n-----END PKCS7-----\n".getBytes("ISO-8859-1"));
         out.close();
         return new String(out.toByteArray(), "ISO-8859-1");
     }
@@ -527,38 +537,95 @@ public class CertificateUtils {
      * @param selfSignedCertificate
      * @param generatedKeyPair
      * @param filename
-     * @param password
+     * @param alias The alias to use in the key store for the private key.
+     * @param password The password with which to protect the key store.
+     * 
      * @throws KeyStoreException
      * @throws IOException
      * @throws NoSuchAlgorithmException
      * @throws CertificateException
      * @throws FileNotFoundException
      */
-    public static void saveToPKCS12(Certificate selfSignedCertificate, KeyPair generatedKeyPair, String filename, char[] password)
+    public static void saveToPKCS12(Certificate selfSignedCertificate, KeyPair generatedKeyPair, String filename, String alias, char[] password)
             throws KeyStoreException, IOException, NoSuchAlgorithmException, CertificateException, FileNotFoundException {
         KeyStore pkcs12KeyStore = KeyStore.getInstance("PKCS12");
         pkcs12KeyStore.load(null, null);
-    
         KeyStore.Entry entry = new PrivateKeyEntry(generatedKeyPair.getPrivate(), new Certificate[] { selfSignedCertificate });
         KeyStore.ProtectionParameter param = new KeyStore.PasswordProtection(password);
-    
-        pkcs12KeyStore.setEntry("owlstead", entry, param);
+        pkcs12KeyStore.setEntry(alias, entry, param);
     
         try (FileOutputStream fos = new FileOutputStream(filename)) {
             pkcs12KeyStore.store(fos, password);
         }
     }
 
+    /**
+     * Save the specified certificate in a Java Key Store (JKS) file.
+     * 
+     * @param selfSignedCertificate The certificate to save.
+     * @param generatedKeyPair The certificate's key pair.
+     * @param filename The name of the file.
+     * @param alias The alias for the certificate entry.
+     * @param password The password for the JKS file.
+     * 
+     * @throws KeyStoreException
+     * @throws IOException
+     * @throws NoSuchAlgorithmException
+     * @throws CertificateException
+     * @throws FileNotFoundException
+     */
+    public static void saveToJKS(Certificate selfSignedCertificate, KeyPair generatedKeyPair, String filename, String alias, char[] password)
+            throws KeyStoreException, IOException, NoSuchAlgorithmException, CertificateException, FileNotFoundException {
+        KeyStore jksKeyStore = KeyStore.getInstance("JKS");
+        jksKeyStore.load(null, null);
+        KeyStore.Entry entry = new PrivateKeyEntry(generatedKeyPair.getPrivate(), new Certificate[] { selfSignedCertificate });
+        KeyStore.ProtectionParameter param = new KeyStore.PasswordProtection(password);
+        jksKeyStore.setEntry(alias, entry, param);
+    
+        try (FileOutputStream fos = new FileOutputStream(filename)) {
+            jksKeyStore.store(fos, password);
+        }
+    }
+
+    /**
+     * Save the specified certificate as a trusted certificate in a Java Key Store (JKS) file.
+     * 
+     * @param selfSignedCertificate The certificate to save.
+     * @param generatedKeyPair The certificate's key pair.
+     * @param filename The name of the file.
+     * @param alias The alias for the certificate entry.
+     * @param password The password for the JKS file.
+     * 
+     * @throws KeyStoreException
+     * @throws IOException
+     * @throws NoSuchAlgorithmException
+     * @throws CertificateException
+     * @throws FileNotFoundException
+     */
+    public static void saveToJKSTrustedCert(Certificate selfSignedCertificate, KeyPair generatedKeyPair, String filename, String alias, char[] password)
+            throws KeyStoreException, IOException, NoSuchAlgorithmException, CertificateException, FileNotFoundException {
+        KeyStore jksKeyStore = KeyStore.getInstance("JKS");
+        jksKeyStore.load(null, null);
+        // this causes it to be a trusted certificate.
+        jksKeyStore.setCertificateEntry(alias, selfSignedCertificate);
+    
+        try (FileOutputStream fos = new FileOutputStream(filename)) {
+            jksKeyStore.store(fos, password);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
+        System.out.println("Generating test self-signed key pair...");
         KeyPair generatedKeyPair = generateKeyPair(4096, DEFAULT_KEY_ALGORITHM);
 
+        System.out.println("Generating test self-signed certificate from key pair...");
         String filename = "test_gen_self_signed.pkcs12";
         char[] password = "test".toCharArray();
+        boolean isCA = false;
+        X509Certificate certificate = selfSignedCertificateX509v3ToPKCS12(generatedKeyPair, "CN=owlstead", filename, "owlstead", password, 5, isCA);
 
-        X509Certificate certificate = selfSignedCertificateX509v3ToPKCS12(generatedKeyPair, "CN=owlstead", filename, password, 5);
-
+        System.out.println("Validating certificate...");
         KeyPair retrievedKeyPair = loadFromPKCS12(filename, password);
-
         // you can validate by generating a signature and verifying it or by
         // comparing the moduli by first casting to RSAPublicKey, e.g.:
         RSAPublicKey pubKey = (RSAPublicKey) generatedKeyPair.getPublic();
@@ -572,16 +639,25 @@ public class CertificateUtils {
         System.out.println("*** Certificate");
         System.out.println(toPEM(certificate));
         
+        System.out.println("Creating certificate signing request for new certificate...");
         KeyPair newKeyPair = generateKeyPair();
         PKCS10CertificationRequest csr = createCSR(X500Name.getInstance(certificate.getSubjectX500Principal().getEncoded()), newKeyPair);
         System.out.println("*** CSR");
-        System.out.println(toPEM(csr));
+        String csrPEM = toPEM(csr);
+        File csrFile = new File("test_csr.pem");
+        FileUtils.write(csrFile, csrPEM, "UTF-8");
+        System.out.println(csrPEM);
+        System.out.println("Signing new certificate with first certificate...");
         String newCertPEM = signCSR(csr, 1, certificate, privKey);
         System.out.println("*** Signed CSR");
         System.out.println(newCertPEM);
-        File newCertFile = new File("newcert.pem");
-        try (FileOutputStream fos = new FileOutputStream(newCertFile)) {
-            IOUtils.write(newCertPEM, fos, Charset.defaultCharset());
-        }
+        File newCertFile = new File("test_newcert.pem");
+        FileUtils.write(newCertFile, newCertPEM, "UTF-8");
+
+        System.out.println("Saving new Trusted Certificate into a JKS...");
+        isCA = true;
+        generatedKeyPair = generateKeyPair(4096, DEFAULT_KEY_ALGORITHM);
+        certificate = selfSignedCertificateX509v3ToPKCS12(generatedKeyPair, "CN=valencia", filename, "valencia", password, 5, isCA);
+        saveToJKSTrustedCert(certificate, generatedKeyPair, "test_trusted_cert.jks", "valencia", password);
     }
 }
